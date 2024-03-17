@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -17,7 +16,7 @@ import (
 
 func main() {
 	// Read the directory
-	files, err := ioutil.ReadDir("./")
+	files, err := os.ReadDir("./")
 	if err != nil {
 		fmt.Println("Error reading directory:", err)
 		os.Exit(1)
