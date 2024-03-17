@@ -25,49 +25,48 @@ func main() {
 
 	// Iterate over the files in the directory
 	for _, file := range files {
-		if file.IsDir() {
-			repoPath := filepath.Join("./", file.Name())
-			// Try to open the directory as a Git repository
-			repo, err := git.PlainOpen(repoPath)
-			if err != nil {
-				continue
-			}
+		if !file.IsDir() {
+			continue
+		}
 
-			// Get the current branch
-			ref, err := repo.Head()
-			if err != nil {
-				fmt.Printf("Error getting HEAD for %s: %s\n", repoPath, err)
-				continue
-			}
+		repoPath := filepath.Join("./", file.Name())
+		// Try to open the directory as a Git repository
+		repo, err := git.PlainOpen(repoPath)
+		if err != nil {
+			continue
+		}
 
-			// Check if the branch is upstreamed
-			isUpstreamed, err := isBranchUpstreamed(repo, ref.Name().Short())
-			if err != nil {
-				fmt.Printf("Error checking if branch is upstreamed for %s: %s\n", repoPath, err)
-				continue
-			}
+		// Get the current branch
+		ref, err := repo.Head()
+		if err != nil {
+			fmt.Printf("Error getting HEAD for %s: %s\n", repoPath, err)
+			continue
+		}
 
-			if !isUpstreamed {
-				// Fetch the remote repository
-				_ = repo.Fetch(&git.FetchOptions{
-					RefSpecs: []config.RefSpec{"refs/heads/*:refs/remotes/origin/*"},
-				})
-				// if err != nil && err == git.NoErrAlreadyUpToDate {
-				// 	return false, err
-				// }
-			}
+		// Check if the branch is upstreamed
+		isUpstreamed, err := isBranchUpstreamed(repo, ref.Name().Short())
+		if err != nil {
+			fmt.Printf("Error checking if branch is upstreamed for %s: %s\n", repoPath, err)
+			continue
+		}
 
-			// Check if the branch is upstreamed
-			isUpstreamed, err = isBranchUpstreamed(repo, ref.Name().Short())
-			if err != nil {
-				fmt.Printf("Error checking if branch is upstreamed for %s: %s\n", repoPath, err)
-				continue
-			}
+		if !isUpstreamed {
+			// Fetch the remote repository
+			_ = repo.Fetch(&git.FetchOptions{
+				RefSpecs: []config.RefSpec{"refs/heads/*:refs/remotes/origin/*"},
+			})
+		}
 
-			if !isUpstreamed {
-				fmt.Printf("Branch %s in %s is not upstreamed\n", ref.Name().String(), repoPath)
-				continue
-			}
+		// Check if the branch is upstreamed
+		isUpstreamed, err = isBranchUpstreamed(repo, ref.Name().Short())
+		if err != nil {
+			fmt.Printf("Error checking if branch is upstreamed for %s: %s\n", repoPath, err)
+			continue
+		}
+
+		if !isUpstreamed {
+			fmt.Printf("Branch %s in %s is not upstreamed\n", ref.Name().String(), repoPath)
+			continue
 		}
 	}
 }
