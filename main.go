@@ -11,10 +11,11 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
-func main() {
-	// Specify the directory you want to scan
-	dirPath := "/Users/hbogert/src"
+// 1. is working dirty NOTOK
+// 2. if feat branch, is upstream? OK
+// 3. if not upstreamed, is upstreamed in main? if so OK
 
+func main() {
 	// Read the directory
 	files, err := ioutil.ReadDir("./")
 	if err != nil {
