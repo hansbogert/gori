@@ -16,7 +16,7 @@ func main() {
 	dirPath := "/Users/hbogert/src"
 
 	// Read the directory
-	files, err := ioutil.ReadDir(dirPath)
+	files, err := ioutil.ReadDir("./")
 	if err != nil {
 		fmt.Println("Error reading directory:", err)
 		os.Exit(1)
@@ -25,7 +25,7 @@ func main() {
 	// Iterate over the files in the directory
 	for _, file := range files {
 		if file.IsDir() {
-			repoPath := filepath.Join(dirPath, file.Name())
+			repoPath := filepath.Join("./", file.Name())
 			// Try to open the directory as a Git repository
 			repo, err := git.PlainOpen(repoPath)
 			if err != nil {
