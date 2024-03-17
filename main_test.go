@@ -8,8 +8,10 @@ import (
 )
 
 var (
-	upToDate, upToDateErr     = git.PlainOpen("test/up-to-date")
-	noUpstream, noUpstreamErr = git.PlainOpen("test/no-upstream")
+	upToDate, upToDateErr             = git.PlainOpen("test/up-to-date")
+	noUpstream, noUpstreamErr         = git.PlainOpen("test/no-upstream")
+	notUpstreamed, notUpstreamedErr   = git.PlainOpen("test/not-upstreamed")
+	behindUpstream, behindUpstreamErr = git.PlainOpen("test/behind-upstream")
 )
 
 func Test_isBranchUpstreamed(t *testing.T) {
@@ -36,6 +38,24 @@ func Test_isBranchUpstreamed(t *testing.T) {
 			name: "up-to-date",
 			args: args{
 				upToDate,
+				"main",
+			},
+			want: true,
+			err:  nil,
+		},
+		{
+			name: "not-upstreamed",
+			args: args{
+				notUpstreamed,
+				"main",
+			},
+			want: false,
+			err:  nil,
+		},
+		{
+			name: "behind upstream",
+			args: args{
+				behindUpstream,
 				"main",
 			},
 			want: true,
