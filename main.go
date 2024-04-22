@@ -43,34 +43,27 @@ func main() {
 			continue
 		}
 
-		clean, err := isClean(repo)
+		wt, err := repo.Worktree()
+		if err != nil {
+			fmt.Printf("%s: could not get worktree: %s\n", repoPath, err)
+			continue
+		}
+
+		status, err := wt.Status()
 		if err != nil {
 			fmt.Printf("%s: could not get repo status: %s\n", repoPath, err)
 			continue
 		}
 
-		if !clean {
+		if !status.IsClean() {
 			fmt.Printf("%s: 🚧\n", repoPath)
+			fmt.Printf("%s\n", status)
+
 			continue
 		}
 
 		isUpstreamed(repo, repoPath)
 	}
-}
-
-func isClean(repo *git.Repository) (bool, error) {
-	wt, err := repo.Worktree()
-	if err != nil {
-		return false, err
-	}
-
-	wtStatus, err := wt.Status()
-
-	if err != nil {
-		return false, err
-	}
-
-	return wtStatus.IsClean(), nil
 }
 
 func isUpstreamed(repo *git.Repository, repoPath string) bool {
