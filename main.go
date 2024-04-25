@@ -8,6 +8,7 @@ import (
 
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/spf13/cobra"
 )
 
 // 1. is working dirty >NOK
@@ -21,8 +22,23 @@ type checks struct {
 	subsumedInMain  *bool
 }
 
+var showChanges bool
+
 func main() {
-	// Read the directory
+	rootCmd := &cobra.Command{
+		Use: "gori",
+		Run: run,
+	}
+
+	rootCmd.Flags().BoolVarP(&showChanges, "stat", "s", false, "stat the files if the work tree is not clean")
+
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println("Error executing command:", err)
+		os.Exit(1)
+	}
+}
+
+func run(cmd *cobra.Command, args []string) {
 	files, err := os.ReadDir("./")
 	if err != nil {
 		fmt.Println("Error reading directory:", err)
@@ -57,7 +73,9 @@ func main() {
 
 		if !status.IsClean() {
 			fmt.Printf("%s: 🚧\n", repoPath)
-			fmt.Printf("%s\n", status)
+			if showChanges {
+				fmt.Printf("%s\n", status)
+			}
 
 			continue
 		}
