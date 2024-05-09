@@ -92,13 +92,6 @@ func isUpstreamed(repo *git.Repository, repoPath string) bool {
 		return false
 	}
 
-	// if !isUpstreamed {
-	// 	// Fetch the remote repository
-	// 	_ = repo.Fetch(&git.FetchOptions{
-	// 		RefSpecs: []config.RefSpec{"refs/heads/*:refs/remotes/origin/*"},
-	// 	})
-	// }
-
 	// Check if the branch is upstreamed
 	isUpstreamed, err := isBranchUpstreamed(repo, ref.Name().Short(), ref.Name().Short())
 	if err != nil && err != plumbing.ErrReferenceNotFound {
