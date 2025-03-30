@@ -1,9 +1,10 @@
 module github.com/hansbogert/gori
 
-go 1.21.5
+go 1.23.3
 
 require (
 	github.com/go-git/go-git/v5 v5.12.0
+	github.com/rogpeppe/go-internal v1.11.0
 	github.com/spf13/cobra v1.8.0
 )
 
