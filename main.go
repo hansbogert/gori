@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -196,9 +197,29 @@ func visitProjects(projects []ProjectStatus) {
 
 		// Unless it's the last project, ask if the user wants to continue to the next one
 		if i < len(projects)-1 {
-			fmt.Printf("\nContinue to the next project? (y/n): ")
+			fmt.Printf("\nContinue to the next project? (y/n/s for subshell): ")
 			cont, _ := reader.ReadString('\n')
 			cont = strings.TrimSpace(strings.ToLower(cont))
+
+			if cont == "s" {
+				// Start a new subshell in the current project directory
+				shell := os.Getenv("SHELL")
+				if shell == "" {
+					shell = "/bin/bash" // fallback to bash if SHELL is not set
+				}
+				cmd := exec.Command(shell)
+				cmd.Dir = project.path
+				cmd.Stdin = os.Stdin
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+				if err := cmd.Run(); err != nil {
+					fmt.Printf("Error starting subshell: %s\n", err)
+				}
+				// After subshell exits, ask again about continuing
+				fmt.Printf("\nContinue to the next project? (y/n/s for subshell): ")
+				cont, _ = reader.ReadString('\n')
+				cont = strings.TrimSpace(strings.ToLower(cont))
+			}
 
 			if cont != "y" && cont != "yes" {
 				break
