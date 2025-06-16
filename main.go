@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"strings"
