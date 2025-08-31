@@ -21,11 +21,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// 1. is working dirty >NOK
-// 2. if feat branch, is upstream? >OK
-// 3. if not upstreamed, is upstreamed in main? if so >OK
-// 4. >NOK
-
 // ProjectStatus tracks the status of a Git repository
 type ProjectStatus struct {
 	path              string
@@ -71,6 +66,12 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string) {
+	fmt.Println("Emoji Legend:")
+	fmt.Println("  🚧: Dirty working directory")
+	fmt.Println("  🗄️: Stashed changes")
+	fmt.Println("  📤: Not upstreamed")
+	fmt.Println("") // Add a blank line for spacing
+
 	ignoreConfig, err := loadIgnoreConfig()
 	if err != nil {
 		fmt.Println("Error loading ignore config:", err)
