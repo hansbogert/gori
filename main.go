@@ -6,8 +6,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
 
+	"cuelang.org/go/cue"
+	"cuelang.org/go/cue/cuecontext"
+	"cuelang.org/go/cue/format"
+	"cuelang.org/go/encoding/gocode/gocodec"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/spf13/cobra"
@@ -18,18 +26,27 @@ import (
 // 3. if not upstreamed, is upstreamed in main? if so >OK
 // 4. >NOK
 
-type checks struct {
-	directory       string
-	hasUpstreamFeat *bool
-	subsumedInMain  *bool
-}
-
 // ProjectStatus tracks the status of a Git repository
 type ProjectStatus struct {
-	path       string
-	isDirty    bool
-	hasStash   bool
-	upstreamed bool
+	path              string
+	isDirty           bool
+	hasStash          bool
+	upstreamed        bool
+	isDirtySnoozed    bool
+	hasStashSnoozed   bool
+	upstreamedSnoozed bool
+}
+
+// IgnoreConfig represents the structure of the .goriignore.cue file
+type IgnoreConfig struct {
+	Repos []struct {
+		Path   string `json:"path"`
+		Snooze struct {
+			DirtyWorkdir  string `json:"dirty_workdir,omitempty"`
+			Stashes       string `json:"stashes,omitempty"`
+			NotUpstreamed string `json:"not_upstreamed,omitempty"`
+		} `json:"snooze,omitempty"`
+	} `json:"repos"`
 }
 
 var showChanges bool
@@ -54,6 +71,12 @@ func main() {
 }
 
 func run(cmd *cobra.Command, args []string) {
+	ignoreConfig, err := loadIgnoreConfig()
+	if err != nil {
+		fmt.Println("Error loading ignore config:", err)
+		// We can continue without the ignore file
+	}
+
 	files, err := os.ReadDir("./")
 	if err != nil {
 		fmt.Println("Error reading directory:", err)
@@ -100,17 +123,29 @@ func run(cmd *cobra.Command, args []string) {
 			project.upstreamed = isUpstreamed(repo, repoPath)
 		}
 
-		// Display project status
-		displayProjectStatus(project)
+		// Store original status before snoozing
+		hasIssuesBeforeSnooze := project.isDirty || project.hasStash || !project.upstreamed
 
-		// Only add projects with issues to the list
-		if project.isDirty || project.hasStash || !project.upstreamed {
-			projects = append(projects, project)
+		// If there are no issues at all, just continue.
+		if !hasIssuesBeforeSnooze {
+			continue
 		}
 
-		// If showing changes was requested, show them now
-		if project.isDirty && showChanges {
-			fmt.Printf("%s\n", status)
+		// Apply snooze logic
+		applySnooze(repoPath, &project, ignoreConfig)
+
+		// Check for issues *after* snoozing
+		hasIssuesAfterSnooze := project.isDirty || project.hasStash || !project.upstreamed
+
+		// If there are still issues after snoozing, then display and add to list.
+		if hasIssuesAfterSnooze {
+			displayProjectStatus(project)
+			projects = append(projects, project)
+
+			// If showing changes was requested, show them now
+			if project.isDirty && showChanges {
+				fmt.Printf("%s\n", status)
+			}
 		}
 	}
 
@@ -129,11 +164,11 @@ func displayProjectStatus(project ProjectStatus) {
 	}
 
 	if project.hasStash {
-		statusLine += "⛏️" // Shovel emoji for stashes
+		statusLine += "🗄️" // File cabinet emoji for stashes
 	}
 
 	if !project.isDirty && !project.upstreamed {
-		statusLine += "❌" // Not upstreamed
+		statusLine += "📤" // Outbox emoji for not upstreamed
 	}
 
 	if statusLine != project.path+": " {
@@ -195,6 +230,15 @@ func visitProjects(projects []ProjectStatus) {
 			}
 		}
 
+		// Ask if user wants to ignore this project
+		fmt.Printf("\nDo you want to ignore this project for a while? (y/n): ")
+		resp, _ := reader.ReadString('\n')
+		resp = strings.TrimSpace(strings.ToLower(resp))
+
+		if resp == "y" || resp == "yes" {
+			updateIgnoreFile(project, reader)
+		}
+
 		// Unless it's the last project, ask if the user wants to continue to the next one
 		if i < len(projects)-1 {
 			fmt.Printf("\nContinue to the next project? (y/n/s for subshell): ")
@@ -226,6 +270,206 @@ func visitProjects(projects []ProjectStatus) {
 			}
 		}
 	}
+}
+
+func parseSnoozeDuration(durationStr string) (time.Duration, error) {
+	durationStr = strings.TrimSpace(strings.ToLower(durationStr))
+
+	// First, try parsing with time.ParseDuration for units like h, m, s
+	d, err := time.ParseDuration(durationStr)
+	if err == nil {
+		return d, nil
+	}
+
+	// If that fails, try our custom format for d, w, m, y
+	re := regexp.MustCompile(`^(\d+)([dwmy])$`)
+	matches := re.FindStringSubmatch(durationStr)
+
+	if len(matches) != 3 {
+		return 0, fmt.Errorf("invalid duration format: %s. Use formats like 1h, 2d, 3w, 4m, 5y", durationStr)
+	}
+
+	value, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0, err // Should not happen with the regex
+	}
+
+	var duration time.Duration
+	switch matches[2] {
+	case "d":
+		duration = time.Hour * 24 * time.Duration(value)
+	case "w":
+		duration = time.Hour * 24 * 7 * time.Duration(value)
+	case "m":
+		// Approximate a month as 30 days
+		duration = time.Hour * 24 * 30 * time.Duration(value)
+	case "y":
+		// Approximate a year as 365 days
+		duration = time.Hour * 24 * 365 * time.Duration(value)
+	default:
+		// This case should not be reached due to regex
+		return 0, fmt.Errorf("unsupported duration unit: %s", matches[2])
+	}
+	return duration, nil
+}
+
+func updateIgnoreFile(project ProjectStatus, reader *bufio.Reader) {
+	config, err := loadIgnoreConfig()
+	if err != nil {
+		config = &IgnoreConfig{}
+	}
+
+	fmt.Printf("Which check do you want to snooze? (dirty, stash, upstream, all): ")
+	check, _ := reader.ReadString('\n')
+	check = strings.TrimSpace(strings.ToLower(check))
+
+	validChecks := []string{"dirty", "stash", "upstream", "all"}
+	isValidCheck := slices.Contains(validChecks, check)
+	if !isValidCheck {
+		fmt.Println("Invalid check specified.")
+		return
+	}
+
+	fmt.Printf("For how long? (e.g., 1h, 2d, 3w, 4m, 5y): ")
+	durationStr, _ := reader.ReadString('\n')
+	durationStr = strings.TrimSpace(strings.ToLower(durationStr))
+
+	duration, err := parseSnoozeDuration(durationStr)
+	if err != nil {
+		fmt.Println("Invalid duration format:", err)
+		return
+	}
+
+	snoozeUntil := time.Now().Add(duration).Format(time.DateTime)
+
+	found := false
+	for i, repo := range config.Repos {
+		if repo.Path == project.path {
+			if check == "all" {
+				config.Repos[i].Snooze.DirtyWorkdir = snoozeUntil
+				config.Repos[i].Snooze.Stashes = snoozeUntil
+				config.Repos[i].Snooze.NotUpstreamed = snoozeUntil
+			} else {
+				switch check {
+				case "dirty":
+					config.Repos[i].Snooze.DirtyWorkdir = snoozeUntil
+				case "stash":
+					config.Repos[i].Snooze.Stashes = snoozeUntil
+				case "upstream":
+					config.Repos[i].Snooze.NotUpstreamed = snoozeUntil
+				}
+			}
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		newRepo := struct {
+			Path   string `json:"path"`
+			Snooze struct {
+				DirtyWorkdir  string `json:"dirty_workdir,omitempty"`
+				Stashes       string `json:"stashes,omitempty"`
+				NotUpstreamed string `json:"not_upstreamed,omitempty"`
+			} `json:"snooze,omitempty"`
+		}{
+			Path: project.path,
+		}
+		if check == "all" {
+			newRepo.Snooze.DirtyWorkdir = snoozeUntil
+			newRepo.Snooze.Stashes = snoozeUntil
+			newRepo.Snooze.NotUpstreamed = snoozeUntil
+		} else {
+			switch check {
+			case "dirty":
+				newRepo.Snooze.DirtyWorkdir = snoozeUntil
+			case "stash":
+				newRepo.Snooze.Stashes = snoozeUntil
+			case "upstream":
+				newRepo.Snooze.NotUpstreamed = snoozeUntil
+			}
+		}
+		config.Repos = append(config.Repos, newRepo)
+	}
+
+	// Now, write the updated config back to the file
+	ctx := cuecontext.New()
+	codec := gocodec.New(ctx, nil)
+	val, err := codec.Decode(config)
+	if err != nil {
+		fmt.Println("Error decoding config:", err)
+		return
+	}
+
+	b, err := format.Node(val.Syntax())
+	if err != nil {
+		fmt.Println("Error formatting CUE:", err)
+		return
+	}
+
+	err = os.WriteFile(".goriignore.cue", b, 0644)
+	if err != nil {
+		fmt.Println("Error writing ignore file:", err)
+	}
+}
+
+func loadIgnoreConfig() (*IgnoreConfig, error) {
+	ignoreFile := ".goriignore.cue"
+	content, err := os.ReadFile(ignoreFile)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", ignoreFile, err)
+	}
+
+	ctx := cuecontext.New()
+	val := ctx.CompileBytes(content, cue.Filename(ignoreFile))
+	if val.Err() != nil {
+		return nil, fmt.Errorf("compiling %s: %w", ignoreFile, val.Err())
+	}
+
+	var cfg IgnoreConfig
+	if err := val.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("decoding %s: %w", ignoreFile, err)
+	}
+
+	return &cfg, nil
+}
+
+func applySnooze(repoPath string, project *ProjectStatus, config *IgnoreConfig) {
+	if config == nil {
+		return
+	}
+
+	for _, repo := range config.Repos {
+		if repo.Path == repoPath {
+			if project.isDirty && repo.Snooze.DirtyWorkdir != "" {
+				if isSnoozed(repo.Snooze.DirtyWorkdir) {
+					project.isDirty = false
+					project.isDirtySnoozed = true
+				}
+			}
+			if project.hasStash && repo.Snooze.Stashes != "" {
+				if isSnoozed(repo.Snooze.Stashes) {
+					project.hasStash = false
+					project.hasStashSnoozed = true
+				}
+			}
+			if !project.upstreamed && repo.Snooze.NotUpstreamed != "" {
+				if isSnoozed(repo.Snooze.NotUpstreamed) {
+					project.upstreamed = true
+					project.upstreamedSnoozed = true
+				}
+			}
+		}
+	}
+}
+
+func isSnoozed(snoozeTime string) bool {
+	t, err := time.Parse(time.DateTime, snoozeTime)
+	if err != nil {
+		fmt.Printf("Error parsing snooze time: %s\n", err)
+		return false
+	}
+	return time.Now().Before(t)
 }
 
 // checkForStashes checks if the repository has any stashed changes
@@ -282,7 +526,6 @@ func isUpstreamed(repo *git.Repository, repoPath string) bool {
 	}
 
 	if !isUpstreamed {
-		fmt.Printf("%s: Branch %s is not upstreamed in %s\n", repoPath, ref.Name().String(), mainish)
 		return false
 	}
 
