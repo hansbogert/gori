@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -73,7 +74,7 @@ func run(cmd *cobra.Command, args []string) {
 	fmt.Println("") // Add a blank line for spacing
 
 	ignoreConfig, err := loadIgnoreConfig()
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		fmt.Println("Error loading ignore config:", err)
 		// We can continue without the ignore file
 	}
