@@ -193,62 +193,36 @@ func visitProjects(projects []ProjectStatus) {
 	for i, project := range projects {
 		fmt.Printf("\nProject %d/%d: %s\n", i+1, len(projects), project.path)
 
-		if project.isDirty {
-			fmt.Printf("Working directory has uncommitted changes. View them? (y/n): ")
-			resp, _ := reader.ReadString('\n')
-			resp = strings.TrimSpace(strings.ToLower(resp))
+		for {
+			fmt.Printf("\n(s)tatus, (i)gnore, (n)ext, (e)xecute shell, (q)uit: ")
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(strings.ToLower(input))
+			parts := strings.Fields(input)
+			if len(parts) == 0 {
+				continue
+			}
+			command := parts[0]
 
-			if resp == "y" || resp == "yes" {
-				// Show working directory changes using go-git
+			switch command {
+			case "s":
 				repo, _ := git.PlainOpen(project.path)
 				wt, _ := repo.Worktree()
 				status, _ := wt.Status()
 				fmt.Printf("\n%s\n", status)
-			}
-		}
-
-		if project.hasStash {
-			fmt.Printf("Project has stashed changes. View stash list? (y/n): ")
-			resp, _ := reader.ReadString('\n')
-			resp = strings.TrimSpace(strings.ToLower(resp))
-
-			if resp == "y" || resp == "yes" {
-				// Unfortunately, go-git doesn't provide a straightforward way to show stash contents
-				// Print the file path so user can navigate to it
-				fmt.Printf("\nStash reference found at: %s/.git/refs/stash\n", project.path)
-				fmt.Printf("To see stashes, navigate to this directory and run 'git stash list'\n")
-			}
-		}
-
-		if !project.upstreamed && !project.isDirty {
-			fmt.Printf("Branch is not upstreamed. Would you like more details? (y/n): ")
-			resp, _ := reader.ReadString('\n')
-			resp = strings.TrimSpace(strings.ToLower(resp))
-
-			if resp == "y" || resp == "yes" {
-				// This would need a more detailed analysis
-				fmt.Printf("\nThe current branch in %s is not upstreamed.\n", project.path)
-				fmt.Printf("Use 'git push' to push your changes upstream.\n")
-			}
-		}
-
-		// Ask if user wants to ignore this project
-		fmt.Printf("\nDo you want to ignore this project for a while? (y/n): ")
-		resp, _ := reader.ReadString('\n')
-		resp = strings.TrimSpace(strings.ToLower(resp))
-
-		if resp == "y" || resp == "yes" {
-			updateIgnoreFile(project, reader)
-		}
-
-		// Unless it's the last project, ask if the user wants to continue to the next one
-		if i < len(projects)-1 {
-			fmt.Printf("\nContinue to the next project? (y/n/s for subshell): ")
-			cont, _ := reader.ReadString('\n')
-			cont = strings.TrimSpace(strings.ToLower(cont))
-
-			if cont == "s" {
-				// Start a new subshell in the current project directory
+			case "i":
+				if len(parts) < 2 {
+					fmt.Println("Usage: i <duration> [check]")
+					continue
+				}
+				durationStr := parts[1]
+				check := "all"
+				if len(parts) > 2 {
+					check = parts[2]
+				}
+				snoozeCheck(project, durationStr, check)
+			case "n":
+				goto nextProject
+			case "e":
 				shell := os.Getenv("SHELL")
 				if shell == "" {
 					shell = "/bin/bash" // fallback to bash if SHELL is not set
@@ -261,16 +235,13 @@ func visitProjects(projects []ProjectStatus) {
 				if err := cmd.Run(); err != nil {
 					fmt.Printf("Error starting subshell: %s\n", err)
 				}
-				// After subshell exits, ask again about continuing
-				fmt.Printf("\nContinue to the next project? (y/n/s for subshell): ")
-				cont, _ = reader.ReadString('\n')
-				cont = strings.TrimSpace(strings.ToLower(cont))
-			}
-
-			if cont != "y" && cont != "yes" {
-				break
+			case "q":
+				return
+			default:
+				fmt.Println("Invalid command.")
 			}
 		}
+	nextProject:
 	}
 }
 
@@ -315,26 +286,18 @@ func parseSnoozeDuration(durationStr string) (time.Duration, error) {
 	return duration, nil
 }
 
-func updateIgnoreFile(project ProjectStatus, reader *bufio.Reader) {
+func snoozeCheck(project ProjectStatus, durationStr string, check string) {
 	config, err := loadIgnoreConfig()
 	if err != nil {
 		config = &IgnoreConfig{}
 	}
 
-	fmt.Printf("Which check do you want to snooze? (dirty, stash, upstream, all): ")
-	check, _ := reader.ReadString('\n')
-	check = strings.TrimSpace(strings.ToLower(check))
-
 	validChecks := []string{"dirty", "stash", "upstream", "all"}
-	isValidCheck := slices.Contains(validChecks, check)
-	if !isValidCheck {
+	isValcheck := slices.Contains(validChecks, check)
+	if !isValcheck {
 		fmt.Println("Invalid check specified.")
 		return
 	}
-
-	fmt.Printf("For how long? (e.g., 1h, 2d, 3w, 4m, 5y): ")
-	durationStr, _ := reader.ReadString('\n')
-	durationStr = strings.TrimSpace(strings.ToLower(durationStr))
 
 	duration, err := parseSnoozeDuration(durationStr)
 	if err != nil {
@@ -503,7 +466,6 @@ func isUpstreamed(repo *git.Repository, repoPath string) bool {
 		// +state nobranchupstream
 		fmt.Printf("%s: Error checking if branch itself is upstreamed: %s\n", repoPath, err)
 	}
-
 	if isUpstreamed {
 		return true
 	}
@@ -582,7 +544,7 @@ func isBranchUpstreamed(repo *git.Repository, localBranchName, remoteBranchName 
 	rObject, err := repo.CommitObject(remoteRef.Hash())
 
 	if err != nil {
-		return false, fmt.Errorf(`cannot get remoteRef, "origin/%s" by hash: %w`, remoteBranchName, err)
+		return false, fmt.Errorf(`cannot get remoteRef, \"origin/%s\" by hash: %w`, remoteBranchName, err)
 	}
 
 	return lObject.IsAncestor(rObject)
