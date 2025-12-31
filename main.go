@@ -54,8 +54,9 @@ func Main() int {
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use: "gori",
-		Run: run,
+		Use:  "gori [path]",
+		Run:  run,
+		Args: cobra.MaximumNArgs(1),
 	}
 
 	rootCmd.Flags().BoolVarP(&showChanges, "stat", "s", false, "stat the files if the work tree is not clean")
@@ -73,13 +74,19 @@ func run(cmd *cobra.Command, args []string) {
 	fmt.Println("  📤: Not upstreamed")
 	fmt.Println("") // Add a blank line for spacing
 
-	ignoreConfig, err := loadIgnoreConfig()
+	// Determine the path to scan - use positional parameter or default to current directory
+	scanPath := "./"
+	if len(args) > 0 {
+		scanPath = args[0]
+	}
+
+	ignoreConfig, err := loadIgnoreConfig(scanPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		fmt.Println("Error loading ignore config:", err)
 		// We can continue without the ignore file
 	}
 
-	files, err := os.ReadDir("./")
+	files, err := os.ReadDir(scanPath)
 	if err != nil {
 		fmt.Println("Error reading directory:", err)
 		os.Exit(1)
@@ -94,7 +101,7 @@ func run(cmd *cobra.Command, args []string) {
 			continue
 		}
 
-		repoPath := filepath.Join("./", file.Name())
+		repoPath := filepath.Join(scanPath, file.Name())
 
 		// Try to open the directory as a Git repository
 		repo, err := git.PlainOpen(repoPath)
@@ -134,14 +141,14 @@ func run(cmd *cobra.Command, args []string) {
 		}
 
 		// Apply snooze logic
-		applySnooze(repoPath, &project, ignoreConfig)
+		applySnooze(repoPath, &project, ignoreConfig, scanPath)
 
 		// Check for issues *after* snoozing
 		hasIssuesAfterSnooze := project.isDirty || project.hasStash || !project.upstreamed
 
 		// If there are still issues after snoozing, then display and add to list.
 		if hasIssuesAfterSnooze {
-			displayProjectStatus(project)
+			displayProjectStatus(project, scanPath)
 			projects = append(projects, project)
 
 			// If showing changes was requested, show them now
@@ -153,13 +160,15 @@ func run(cmd *cobra.Command, args []string) {
 
 	// Ask if user wants to visit projects
 	if len(projects) > 0 {
-		visitProjects(projects)
+		visitProjects(projects, scanPath)
 	}
 }
 
 // displayProjectStatus outputs the status of a repository with appropriate emojis
-func displayProjectStatus(project ProjectStatus) {
-	statusLine := project.path + ": "
+func displayProjectStatus(project ProjectStatus, scanPath string) {
+	// Show just the directory name, not the full path
+	displayName := filepath.Base(project.path)
+	statusLine := displayName + ": "
 
 	if project.isDirty {
 		statusLine += "🚧" // Construction emoji for dirty working tree
@@ -179,7 +188,7 @@ func displayProjectStatus(project ProjectStatus) {
 }
 
 // visitProjects interactively walks through each project with issues
-func visitProjects(projects []ProjectStatus) {
+func visitProjects(projects []ProjectStatus, scanPath string) {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Printf("\nDo you want to visit each project? (y/n): ")
@@ -191,7 +200,7 @@ func visitProjects(projects []ProjectStatus) {
 	}
 
 	for i, project := range projects {
-		fmt.Printf("\nProject %d/%d: %s\n", i+1, len(projects), project.path)
+		fmt.Printf("\nProject %d/%d: %s\n", i+1, len(projects), filepath.Base(project.path))
 
 		for {
 			fmt.Printf("\n(s)tatus, (i)gnore, (n)ext, (e)xecute shell, (q)uit: ")
@@ -219,7 +228,7 @@ func visitProjects(projects []ProjectStatus) {
 				if len(parts) > 2 {
 					check = parts[2]
 				}
-				snoozeCheck(project, durationStr, check)
+				snoozeCheck(project, durationStr, check, scanPath)
 			case "n":
 				goto nextProject
 			case "e":
@@ -286,8 +295,8 @@ func parseSnoozeDuration(durationStr string) (time.Duration, error) {
 	return duration, nil
 }
 
-func snoozeCheck(project ProjectStatus, durationStr string, check string) {
-	config, err := loadIgnoreConfig()
+func snoozeCheck(project ProjectStatus, durationStr string, check string, scanPath string) {
+	config, err := loadIgnoreConfig(scanPath)
 	if err != nil {
 		config = &IgnoreConfig{}
 	}
@@ -338,7 +347,7 @@ func snoozeCheck(project ProjectStatus, durationStr string, check string) {
 				NotUpstreamed string `json:"not_upstreamed,omitempty"`
 			} `json:"snooze,omitempty"`
 		}{
-			Path: project.path,
+			Path: getRelativePath(project.path, scanPath),
 		}
 		if check == "all" {
 			newRepo.Snooze.DirtyWorkdir = snoozeUntil
@@ -372,14 +381,30 @@ func snoozeCheck(project ProjectStatus, durationStr string, check string) {
 		return
 	}
 
-	err = os.WriteFile(".goriignore.cue", b, 0644)
+	ignoreFile := filepath.Join(scanPath, ".goriignore.cue")
+	err = os.WriteFile(ignoreFile, b, 0644)
 	if err != nil {
 		fmt.Println("Error writing ignore file:", err)
 	}
 }
 
-func loadIgnoreConfig() (*IgnoreConfig, error) {
-	ignoreFile := ".goriignore.cue"
+func getRelativePath(projectPath, scanPath string) string {
+	// Get absolute paths for both
+	absProjectPath, _ := filepath.Abs(projectPath)
+	absScanPath, _ := filepath.Abs(scanPath)
+
+	// Get relative path from scan directory to project
+	relPath, err := filepath.Rel(absScanPath, absProjectPath)
+	if err != nil {
+		// Fallback to original path if we can't compute relative path
+		return projectPath
+	}
+
+	return relPath
+}
+
+func loadIgnoreConfig(scanPath string) (*IgnoreConfig, error) {
+	ignoreFile := filepath.Join(scanPath, ".goriignore.cue")
 	content, err := os.ReadFile(ignoreFile)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", ignoreFile, err)
@@ -399,13 +424,29 @@ func loadIgnoreConfig() (*IgnoreConfig, error) {
 	return &cfg, nil
 }
 
-func applySnooze(repoPath string, project *ProjectStatus, config *IgnoreConfig) {
+func applySnooze(repoPath string, project *ProjectStatus, config *IgnoreConfig, scanPath string) {
 	if config == nil {
 		return
 	}
 
 	for _, repo := range config.Repos {
-		if repo.Path == repoPath {
+		// The repo.Path is relative to the goriignore file location
+		// Convert it to an absolute path for comparison
+		ignoreFileDir := scanPath
+		if !filepath.IsAbs(scanPath) {
+			absScanPath, _ := filepath.Abs(scanPath)
+			ignoreFileDir = absScanPath
+		}
+
+		// Resolve the repo path relative to the goriignore file directory
+		resolvedPath := filepath.Join(ignoreFileDir, repo.Path)
+		resolvedPath = filepath.Clean(resolvedPath)
+
+		// Also get absolute path for repoPath for comparison
+		absRepoPath, _ := filepath.Abs(repoPath)
+		absRepoPath = filepath.Clean(absRepoPath)
+
+		if resolvedPath == absRepoPath {
 			if project.isDirty && repo.Snooze.DirtyWorkdir != "" {
 				if isSnoozed(repo.Snooze.DirtyWorkdir) {
 					project.isDirty = false
