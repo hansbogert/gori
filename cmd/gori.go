@@ -19,6 +19,7 @@ import (
 )
 
 var showChanges bool
+var concurrency int
 
 func Main() int {
 	main()
@@ -33,6 +34,7 @@ func main() {
 	}
 
 	rootCmd.Flags().BoolVarP(&showChanges, "stat", "s", false, "stat the files if the work tree is not clean")
+	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 8, "maximum number of concurrent git operations")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println("Error executing command:", err)
@@ -78,7 +80,7 @@ func run(cmd *cobra.Command, args []string) {
 	results := make(map[string]gori.ProjectStatus)
 	done := make(map[string]bool)
 
-	concurrencyLimit := 8
+	concurrencyLimit := concurrency
 	sem := make(chan struct{}, concurrencyLimit)
 
 	for _, path := range repoPaths {
