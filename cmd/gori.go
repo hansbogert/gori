@@ -188,14 +188,6 @@ func displayProjectStatus(project gori.ProjectStatus) {
 func visitProjects(projects []gori.ProjectStatus, scanPath string) {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Printf("\nDo you want to visit each project? (y/n): ")
-	response, _ := reader.ReadString('\n')
-	response = strings.TrimSpace(strings.ToLower(response))
-
-	if response != "y" && response != "yes" {
-		return
-	}
-
 	for i, project := range projects {
 
 	project:
