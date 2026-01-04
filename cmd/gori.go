@@ -197,10 +197,10 @@ func visitProjects(projects []gori.ProjectStatus, scanPath string) {
 	}
 
 	for i, project := range projects {
-		fmt.Printf("\nProject %d/%d: %s\n", i+1, len(projects), filepath.Base(project.Path))
 
 	project:
 		for {
+			fmt.Printf("\nProject %d/%d: %s\n", i+1, len(projects), filepath.Base(project.Path))
 			fmt.Printf("\n(s)tatus, (i)gnore, (n)ext, (e)xecute shell, (q)uit: ")
 			input, _ := reader.ReadString('\n')
 			input = strings.TrimSpace(strings.ToLower(input))
