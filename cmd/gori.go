@@ -143,7 +143,7 @@ func run(cmd *cobra.Command, args []string) {
 		for !done[repoPath] {
 			cond.Wait()
 		}
-		project, ok := results[repoPath] // Check if a result was actually added
+		result, ok := results[repoPath] // Check if a result was actually added
 		mu.Unlock()
 
 		if ok && (project.IsDirty || project.HasStash || !project.Upstreamed) {
