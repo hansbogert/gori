@@ -57,8 +57,8 @@ func run(cmd *cobra.Command, args []string) {
 
 	ignoreConfig, err := gori.LoadIgnoreConfig(scanPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		fmt.Println("Error loading ignore config:", err)
-		// We can continue without the ignore file
+		// Log but continue without the ignore file
+		fmt.Fprintf(os.Stderr, "Warning: loading ignore config: %v\n", err)
 	}
 
 	files, err := os.ReadDir(scanPath)
@@ -262,7 +262,7 @@ func isUpstreamed(repo *git.Repository, repoPath string) bool {
 
 	// TODO, we should fallback to see if the commit itself is upstreamed
 	if ref.Name().Short() == "HEAD" {
-		fmt.Printf("%s: local checkout does not have branch name\n", repoPath)
+		fmt.Fprintf(os.Stderr, "%s: local checkout does not have branch name\n", repoPath)
 		return false
 	}
 
@@ -270,7 +270,7 @@ func isUpstreamed(repo *git.Repository, repoPath string) bool {
 	isUpstreamed, err := isBranchUpstreamed(repo, ref.Name().Short(), ref.Name().Short())
 	if err != nil && err != plumbing.ErrReferenceNotFound {
 		// +state nobranchupstream
-		fmt.Printf("%s: Error checking if branch itself is upstreamed: %s\n", repoPath, err)
+		fmt.Fprintf(os.Stderr, "%s: Error checking if branch itself is upstreamed: %v\n", repoPath, err)
 	}
 	if isUpstreamed {
 		return true
@@ -280,18 +280,18 @@ func isUpstreamed(repo *git.Repository, repoPath string) bool {
 	mainish, mainishErr := getLikelyUpstreamMainishBranch(repo)
 
 	if mainishErr != nil {
-		fmt.Printf("%s: could not determine upstream branch: %s\n", repoPath, mainishErr)
+		fmt.Fprintf(os.Stderr, "%s: could not determine upstream branch: %v\n", repoPath, mainishErr)
 		return false
 	}
 
 	isUpstreamed, err = isBranchUpstreamed(repo, ref.Name().Short(), mainish)
 	if err != nil && err != plumbing.ErrReferenceNotFound {
-		fmt.Printf("Error checking if branch is upstreamed into main for %s: %s\n", repoPath, err)
+		fmt.Fprintf(os.Stderr, "Error checking if branch is upstreamed into main for %s: %v\n", repoPath, err)
 		return false
 	}
 
 	if err == plumbing.ErrReferenceNotFound {
-		fmt.Printf("%s: origin does not have %s branch\n", repoPath, mainish)
+		fmt.Fprintf(os.Stderr, "%s: origin does not have %s branch\n", repoPath, mainish)
 		return false
 	}
 
