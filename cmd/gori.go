@@ -74,13 +74,17 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	slices.Sort(repoPaths)
 
+	type repoResult struct {
+		status gori.ProjectStatus
+		err    error
+	}
+
 	var mu sync.Mutex
 	cond := sync.NewCond(&mu)
-	results := make(map[string]gori.ProjectStatus)
+	results := make(map[string]repoResult)
 	done := make(map[string]bool)
 
-	concurrencyLimit := concurrency
-	sem := make(chan struct{}, concurrencyLimit)
+	sem := make(chan struct{}, concurrency)
 
 	for _, path := range repoPaths {
 		sem <- struct{}{}
@@ -90,14 +94,14 @@ func run(cmd *cobra.Command, args []string) error {
 				<-sem
 				mu.Lock()
 				done[repoPath] = true
-				if project.Path != "" {
-					results[repoPath] = project
-				}
 				mu.Unlock()
 				cond.Broadcast()
 			}()
 			repo, err := git.PlainOpen(repoPath)
 			if err != nil {
+				mu.Lock()
+				results[repoPath] = repoResult{err: fmt.Errorf("opening repo: %w", err)}
+				mu.Unlock()
 				return
 			}
 
@@ -106,14 +110,18 @@ func run(cmd *cobra.Command, args []string) error {
 
 			wt, err := repo.Worktree()
 			if err != nil {
-				fmt.Printf("%s: could not get worktree: %s\n", repoPath, err)
+				mu.Lock()
+				results[repoPath] = repoResult{err: fmt.Errorf("getting worktree: %w", err)}
+				mu.Unlock()
 				return
 			}
 
 			status, err := wt.Status()
 
 			if err != nil {
-				fmt.Printf("%s: could not get repo status: %s\n", repoPath, err)
+				mu.Lock()
+				results[repoPath] = repoResult{err: fmt.Errorf("getting repo status: %w", err)}
+				mu.Unlock()
 				return
 			}
 
@@ -142,15 +150,18 @@ func run(cmd *cobra.Command, args []string) error {
 		for !done[repoPath] {
 			cond.Wait()
 		}
-		project, ok := results[repoPath] // Check if a result was actually added
+		result, ok := results[repoPath] // Check if a result was actually added
 		mu.Unlock()
 
-		if ok && (project.IsDirty || project.HasStash || !project.Upstreamed) {
-			displayProjectStatus(project)
-			if project.IsDirty && showChanges {
-				fmt.Printf("%s\n", project.StatusString)
+		if ok && result.err == nil {
+			project := result.status
+			if project.IsDirty || project.HasStash || !project.Upstreamed {
+				displayProjectStatus(project)
+				if project.IsDirty && showChanges {
+					fmt.Printf("%s\n", project.StatusString)
+				}
+				projectsToVisit = append(projectsToVisit, project)
 			}
-			projectsToVisit = append(projectsToVisit, project)
 		}
 	}
 
