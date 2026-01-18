@@ -165,10 +165,7 @@ func run(cmd *cobra.Command, args []string) error {
 		if ok && result.err == nil {
 			project := result.status
 			if project.IsDirty || project.HasStash || !project.Upstreamed {
-				displayProjectStatus(project)
-				if project.IsDirty && showChanges {
-					fmt.Printf("%s\n", project.StatusString)
-				}
+				displayProjectWithChanges(project, showChanges)
 				projectsToVisit = append(projectsToVisit, project)
 			}
 		}
@@ -183,6 +180,11 @@ func run(cmd *cobra.Command, args []string) error {
 
 // displayProjectStatus outputs the status of a repository with appropriate emojis
 func displayProjectStatus(project gori.ProjectStatus) {
+	displayProjectWithChanges(project, showChanges)
+}
+
+// displayProjectWithChanges outputs project status and optionally changes
+func displayProjectWithChanges(project gori.ProjectStatus, showChanges bool) {
 	// Show just the directory name, not the full path
 	displayName := filepath.Base(project.Path)
 	statusLine := displayName + ": "
@@ -202,6 +204,10 @@ func displayProjectStatus(project gori.ProjectStatus) {
 	if statusLine != project.Path+": " {
 		fmt.Println(statusLine)
 	}
+
+	if project.IsDirty && showChanges {
+		fmt.Printf("%s\n", project.StatusString)
+	}
 }
 
 // visitProjects interactively walks through each project with issues
@@ -213,7 +219,7 @@ func visitProjects(projects []gori.ProjectStatus, scanPath string) {
 	project:
 		for {
 			fmt.Printf("\nProject %d/%d: %s\n", i+1, len(projects), filepath.Base(project.Path))
-			fmt.Printf("\n(s)tatus, (i)gnore, (n)ext, (e)xecute shell, (q)uit: ")
+			fmt.Printf("\n(s)tatus, (p)rint results, (i)gnore, (n)ext, (e)xecute shell, (q)uit: ")
 			input, _ := reader.ReadString('\n')
 			input = strings.TrimSpace(strings.ToLower(input))
 			parts := strings.Fields(input)
@@ -228,6 +234,10 @@ func visitProjects(projects []gori.ProjectStatus, scanPath string) {
 				wt, _ := repo.Worktree()
 				status, _ := wt.Status()
 				fmt.Printf("\n%s\n", status)
+			case "p":
+				for _, proj := range projects {
+					displayProjectWithChanges(proj, showChanges)
+				}
 			case "i":
 				if len(parts) < 2 {
 					fmt.Println("Usage: i <duration> [check]")
