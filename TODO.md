@@ -167,6 +167,14 @@ This document contains a comprehensive list of improvements, bug fixes, and feat
 **Formats**: JSON, CSV for integration with other tools  
 **Use Case**: DevOps pipelines, reporting
 
+### 23. **FZF Integration for Project Selection**
+**Status**: 🟡 MEDIUM  
+**Current**: Sequential project navigation in interactive mode  
+**Feature**: Replace sequential navigation with fzf-based fuzzy selection  
+**Benefits**: Faster project selection, better UX for large project lists  
+**Files**: `cmd/gori.go` - `visitProjects()` function  
+**Implementation**: Integrate fzf for interactive project list selection
+
 ## 📋 IMPLEMENTATION PHASES
 
 ### Phase 1 - Critical Fixes (1-2 days)
@@ -197,6 +205,7 @@ This document contains a comprehensive list of improvements, bug fixes, and feat
 - [ ] Better UX (progress bars, error messages)
 - [ ] Multi-level directory support
 - [ ] Additional git operations
+- [ ] FZF integration for project selection
 
 **Files**: Multiple files across the project
 
