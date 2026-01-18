@@ -1,0 +1,30 @@
+exec git config user.email "you@example.com"
+exec git config user.name "Your Name"
+
+mkdir upstream
+cd upstream
+
+exec git init
+
+exec git add foo
+exec git commit -m "1"
+
+exec git add bar
+exec git commit -m "2"
+
+cd ..
+mkdir downstreams
+cd downstreams
+
+exec git clone ../upstream downstream
+cd downstream
+exec git checkout HEAD^
+cd ..
+gori
+
+! stdout 'downstream: origin does not have main'
+-- upstream/foo --
+something
+
+-- upstream/bar --
+something

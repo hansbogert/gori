@@ -1,0 +1,20 @@
+mkdir repo1
+cd repo1
+exec git init
+-- bar --
+foo
+git add bar
+cd ..
+
+-- .goriignore.cue --
+repos: [
+    {
+        path: "repo1",
+        snooze: {
+            dirty_workdir: "2025-05-05 19:00"
+        }
+    }
+]
+
+exec gori
+! stdout "repo1: 🤫"
