@@ -242,18 +242,7 @@ func visitProjects(projects []gori.ProjectStatus, scanPath string) {
 			case "n":
 				break project
 			case "e":
-				shell := os.Getenv("SHELL")
-				if shell == "" {
-					shell = "/bin/bash" // fallback to bash if SHELL is not set
-				}
-				cmd := exec.Command(shell)
-				cmd.Dir = project.Path
-				cmd.Stdin = os.Stdin
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-				if err := cmd.Run(); err != nil {
-					fmt.Printf("Error starting subshell: %s\n", err)
-				}
+				executeSecureSubshell(project.Path)
 			case "q":
 				return
 			default:
@@ -377,4 +366,42 @@ func isBranchUpstreamed(repo *git.Repository, localBranchName, remoteBranchName 
 	}
 
 	return lObject.IsAncestor(rObject)
+}
+
+func executeSecureSubshell(projectPath string) {
+	shellPath := os.Getenv("SHELL")
+	if shellPath == "" {
+		shellPath = "/bin/bash" // fallback to bash if SHELL is not set
+	}
+
+	// Resolve the absolute path of the shell executable
+	resolvedPath, err := exec.LookPath(shellPath)
+	if err != nil {
+		fmt.Printf("Error: could not find shell executable '%s': %v. Aborting.\n", shellPath, err)
+		return
+	}
+
+	// Whitelist of trusted directories for shells
+	trustedDirs := []string{"/bin/", "/usr/bin/", "/sbin/", "/usr/sbin/", "/usr/local/bin/", "/usr/local/sbin/"}
+	isTrusted := false
+	for _, dir := range trustedDirs {
+		if strings.HasPrefix(resolvedPath, dir) {
+			isTrusted = true
+			break
+		}
+	}
+
+	if !isTrusted {
+		fmt.Printf("Error: SHELL environment variable points to a non-standard location: %s. For security, only shells in %v are allowed. Aborting.\n", resolvedPath, trustedDirs)
+		return
+	}
+
+	cmd := exec.Command(resolvedPath)
+	cmd.Dir = projectPath
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Error starting subshell: %s\n", err)
+	}
 }
