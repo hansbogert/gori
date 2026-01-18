@@ -29,7 +29,7 @@ func Main() int {
 func main() {
 	rootCmd := &cobra.Command{
 		Use:  "gori [path]",
-		Run:  run,
+		RunE: run,
 		Args: cobra.MaximumNArgs(1),
 	}
 
@@ -37,12 +37,12 @@ func main() {
 	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 8, "maximum number of concurrent git operations")
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println("Error executing command:", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(cmd *cobra.Command, args []string) {
+func run(cmd *cobra.Command, args []string) error {
 	fmt.Println("Emoji Legend:")
 	fmt.Println("  🚧: Dirty working directory")
 	fmt.Println("  🗄️: Stashed changes")
@@ -63,8 +63,7 @@ func run(cmd *cobra.Command, args []string) {
 
 	files, err := os.ReadDir(scanPath)
 	if err != nil {
-		fmt.Println("Error reading directory:", err)
-		os.Exit(1)
+		return fmt.Errorf("reading directory %s: %w", scanPath, err)
 	}
 
 	var repoPaths []string
@@ -143,7 +142,7 @@ func run(cmd *cobra.Command, args []string) {
 		for !done[repoPath] {
 			cond.Wait()
 		}
-		result, ok := results[repoPath] // Check if a result was actually added
+		project, ok := results[repoPath] // Check if a result was actually added
 		mu.Unlock()
 
 		if ok && (project.IsDirty || project.HasStash || !project.Upstreamed) {
@@ -159,6 +158,7 @@ func run(cmd *cobra.Command, args []string) {
 	if len(projectsToVisit) > 0 {
 		visitProjects(projectsToVisit, scanPath)
 	}
+	return nil
 }
 
 // displayProjectStatus outputs the status of a repository with appropriate emojis
@@ -306,7 +306,10 @@ func isUpstreamed(repo *git.Repository, repoPath string) bool {
 // main or master
 func getLikelyUpstreamMainishBranch(repo *git.Repository) (string, error) {
 	var mainish string
-	refIter, _ := repo.References()
+	refIter, err := repo.References()
+	if err != nil {
+		return "", fmt.Errorf("could not get references: %w", err)
+	}
 	refIter.ForEach(func(r *plumbing.Reference) error {
 		if r.Name().IsRemote() {
 			if r.Name().Short() == "origin/master" {
