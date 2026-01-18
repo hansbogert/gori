@@ -74,83 +74,101 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	slices.Sort(repoPaths)
 
-	var mu sync.Mutex
-	cond := sync.NewCond(&mu)
-	results := make(map[string]gori.ProjectStatus)
-	done := make(map[string]bool)
-
-	concurrencyLimit := concurrency
-	sem := make(chan struct{}, concurrencyLimit)
-
-	for _, path := range repoPaths {
-		sem <- struct{}{}
-		go func(repoPath string) {
-			project := gori.ProjectStatus{}
-			defer func() {
-				<-sem
-				mu.Lock()
-				done[repoPath] = true
-				if project.Path != "" {
-					results[repoPath] = project
-				}
-				mu.Unlock()
-				cond.Broadcast()
-			}()
-			repo, err := git.PlainOpen(repoPath)
-			if err != nil {
-				return
-			}
-
-			// // Store original status before snoozing
-			// hasIssuesBeforeSnooze := project.isDirty || project.hasStash || !project.upstreamed
-
-			wt, err := repo.Worktree()
-			if err != nil {
-				fmt.Printf("%s: could not get worktree: %s\n", repoPath, err)
-				return
-			}
-
-			status, err := wt.Status()
-
-			if err != nil {
-				fmt.Printf("%s: could not get repo status: %s\n", repoPath, err)
-				return
-			}
-
-			// It is a git repo, so process it.
-			project = gori.NewProject(
-				repoPath,
-				!status.IsClean(),
-				checkForStashes(repoPath),
-				isUpstreamed(repo, repoPath),
-			)
-
-			if !project.Clean() {
-				// Apply snooze logic
-				gori.ApplySnooze(repoPath, &project, ignoreConfig, scanPath)
-
-				if project.IsDirty && showChanges {
-					project.StatusString = status.String()
-				}
-			}
-		}(path)
+	type repoResult struct {
+		status gori.ProjectStatus
+		err    error
 	}
 
+	var mu sync.Mutex
+	cond := sync.NewCond(&mu)
+	results := make(map[string]repoResult)
+	done := make(map[string]bool)
+
+	sem := make(chan struct{}, concurrency)
+
+	// one thread that feeds concurrent workers
+	go func() {
+		for _, path := range repoPaths {
+			sem <- struct{}{}
+			go func(repoPath string) {
+				defer func() {
+					<-sem
+					mu.Lock()
+					done[repoPath] = true
+					mu.Unlock()
+					cond.Broadcast()
+				}()
+				repo, err := git.PlainOpen(repoPath)
+				if err != nil {
+					mu.Lock()
+					results[repoPath] = repoResult{err: fmt.Errorf("opening repo: %w", err)}
+					mu.Unlock()
+					return
+				}
+
+				// // Store original status before snoozing
+				// hasIssuesBeforeSnooze := project.isDirty || project.hasStash || !project.upstreamed
+
+				wt, err := repo.Worktree()
+				if err != nil {
+					mu.Lock()
+					results[repoPath] = repoResult{err: fmt.Errorf("getting worktree: %w", err)}
+					mu.Unlock()
+					return
+				}
+
+				status, err := wt.Status()
+				if err != nil {
+					mu.Lock()
+					results[repoPath] = repoResult{err: fmt.Errorf("getting repo status: %w", err)}
+					mu.Unlock()
+					return
+				}
+
+				// It is a git repo, so process it.
+				project := gori.NewProject(
+					repoPath,
+					!status.IsClean(),
+					checkForStashes(repoPath),
+					isUpstreamed(repo, repoPath),
+				)
+
+				if !project.Clean() {
+					// Apply snooze logic
+					gori.ApplySnooze(repoPath, &project, ignoreConfig, scanPath)
+
+					if project.IsDirty && showChanges {
+						project.StatusString = status.String()
+					}
+				}
+
+				// Store the successful result
+				mu.Lock()
+				results[repoPath] = repoResult{status: project}
+				mu.Unlock()
+			}(path)
+		}
+	}()
+
+	// handle worker results
 	var projectsToVisit []gori.ProjectStatus
 	for _, repoPath := range repoPaths {
 		mu.Lock()
 		for !done[repoPath] {
 			cond.Wait()
 		}
-		project, ok := results[repoPath] // Check if a result was actually added
+		result, ok := results[repoPath] // Check if a result was actually added
 		mu.Unlock()
 
-		if ok && (project.IsDirty || project.HasStash || !project.Upstreamed) {
-			displayProjectStatus(project)
-			if project.IsDirty && showChanges {
-				fmt.Printf("%s\n", project.StatusString)
+		if ok && result.err == nil {
+			project := result.status
+			if project.IsDirty || project.HasStash || !project.Upstreamed {
+				displayProjectStatus(project)
+				if project.IsDirty && showChanges {
+					fmt.Printf("%s\n", project.StatusString)
+				}
+				projectsToVisit = append(projectsToVisit, project)
 			}
-			projectsToVisit = append(projectsToVisit, project)
 		}
 	}
 
