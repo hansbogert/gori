@@ -1,12 +1,12 @@
 module github.com/hansbogert/gori
 
-go 1.24.0
+go 1.25.0
 
-toolchain go1.24.11
+toolchain go1.25.7
 
 require (
 	cuelang.org/go v0.14.1
-	github.com/go-git/go-git/v5 v5.16.4
+	github.com/go-git/go-git/v5 v5.17.0
 	github.com/rogpeppe/go-internal v1.14.1
 	github.com/spf13/cobra v1.9.1
 )
@@ -21,7 +21,7 @@ require (
 	github.com/emicklei/proto v1.14.2 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
-	github.com/go-git/go-billy/v5 v5.6.2 // indirect
+	github.com/go-git/go-billy/v5 v5.8.0 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -45,5 +45,3 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/go-git/go-git/v5 v5.16.4 => github.com/hansbogert/go-git/v5 v5.0.0-20251231134013-69f3c3a5e89e
