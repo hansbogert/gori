@@ -5,12 +5,15 @@ Gori was created because there was a need for getting the status of git director
 
 ## Install
 
-Because of a replace directive needed for the temporary override of go-git we
-can't rely on a direct `go install`
+```sh
+go install github.com/hansbogert/gori/cmd/gori@latest
+```
+
+Or clone and install locally:
 
 ```sh
 git clone github.com:hansbogert/gori.git && cd gori
-go install ./cmd/gori.go
+go install ./cmd/gori
 ```
 
 ## Usage
